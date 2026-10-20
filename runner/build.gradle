@@ -4,6 +4,7 @@ import groovy.json.JsonSlurper
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.nio.file.CopyOption
 
 plugins {
     id 'java'
@@ -52,7 +53,7 @@ def vanillaManifestUrl = 'https://piston-meta.mojang.com/v1/packages/b71bae44919
 
 loom {
     customMinecraftManifest.set(vanillaManifestUrl)
-    setIntermediaryUrl('https://maven.legacyfabric.net/net/legacyfabric/intermediary/%1$s/intermediary-%1$s-v2.jar')
+    setIntermediaryUrl("https://maven.legacyfabric.net/net/legacyfabric/intermediary/${minecraft_version}/intermediary-${minecraft_version}-v2.jar")
 }
 
 // some bullshit to allow using loom (for dependencies) to get the ./.fabric/remappedJars/* intermediaries
@@ -129,15 +130,38 @@ dependencies {
 tasks.register('runnerClient', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = "btw.community.runner.Runner"
+    args = ["CLIENT"]
 }
 
 tasks.register('runnerServer', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = "btw.community.runner.Runner"
+    args = ["SERVER"]
+}
+
+tasks.register('doRunners') {
+    dependsOn(runnerClient, runnerServer)
 }
 
 // Requires btw-client-release.jar and btw-server-release.jar in the runner/game dir
-// User can then extract the built intermediaries from runner/.fabric/remappedJars/**/*.jar
-tasks.register('doRunner') {
-    dependsOn([runnerServer, runnerClient])
+// Then extracts the built intermediaries from runner/.fabric/remappedJars/**/*.jar
+// to extras_jars/
+moveIntermediaries {
+    dependsOn(doRunners)
+    def path = file(".fabric/remappedJars/minecraft-${minecraft_version}-${loader_version}").toPath()
+    def clientIntermed = path.resolve("client-intermediary.jar")
+    def serverIntermed = path.resolve("server-intermediary.jar")
+    def extrasJars = file("${projectDir.parent}/extras_jars")
+    extrasJars.mkdir()
+
+    Files.copy(clientIntermed, extrasJars.toPath().resolve("btw-client-intermediary.jar"), StandardCopyOption.REPLACE_EXISTING)
+    Files.copy(serverIntermed, extrasJars.toPath().resolve("btw-server-intermediary.jar"), StandardCopyOption.REPLACE_EXISTING)
+}
+
+unzipClient {
+    //todo pain
+    def zipFile = file("../")
+    def outputDir = file("../")
+    from zipTree(zipFile)
+    into outputDir
 }

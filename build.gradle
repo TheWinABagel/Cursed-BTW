@@ -199,6 +199,34 @@ run {
     //args = ["--jar1", "vanilla-client-release.jar", "--jar2", "btw-client-release.jar", "-o", "./output-client-release.patch"]
 }
 
+tasks.register('runClientPatch', JavaExec) {
+    dependsOn(subprojects.moveIntermediaries)
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'net.superblaubeere27.asmdelta.Main'
+    jvmArgs = ['-Xss16M']
+    args = ["--jar1", "vanilla-client-intermediary.jar", "--jar2", "btw-client-intermediary.jar", "-o", "./output-client-intermediary.patch"]
+}
+
+tasks.register('runServerPatch', JavaExec) {
+    dependsOn(subprojects.moveIntermediaries)
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'net.superblaubeere27.asmdelta.Main'
+    jvmArgs = ['-Xss16M']
+    args = ["--jar1", "vanilla-server-intermediary.jar", "--jar2", "btw-server-intermediary.jar", "-o", "./output-server-intermediary.patch"]
+}
+
+//Run this after
+tasks.register('runPatches') {
+    dependsOn([runClientPatch, runServerPatch])
+
+}
+
+subprojects {
+    tasks.register("moveIntermediaries") {}
+    tasks.register("unzipClient", Copy)
+    tasks.register("unzipServer", Copy)
+}
+
 project.afterEvaluate {
     devPackRun.dependsOn -= downloadAssets
 }
