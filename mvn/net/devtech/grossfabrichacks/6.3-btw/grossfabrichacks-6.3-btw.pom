@@ -8,7 +8,8 @@
     <dependency>
       <groupId>net.fabricmc</groupId>
       <artifactId>fabric-loader</artifactId>
-      <version>+</version>
+      <!--TODO: This was pulling in the latest version as it was '+', might need updating in the future-->
+      <version>0.18.0</version>
       <scope>runtime</scope>
     </dependency>
   </dependencies>

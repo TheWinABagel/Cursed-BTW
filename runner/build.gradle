@@ -1,0 +1,143 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+
+plugins {
+    id 'java'
+    id 'fabric-loom' version "1.6-SNAPSHOT"
+}
+
+version = project.runner_version
+group = project.runner_group
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'legacy-fabric'
+        url = 'https://maven.legacyfabric.net'
+    }
+    maven {
+        url 'https://jitpack.io'
+    }
+    maven {
+        name 'HalfOf2'
+        url 'https://storage.googleapis.com/devan-maven/'
+    }
+    maven {
+        url 'https://btw-community.github.io/btw-mvn/'
+    }
+    mavenLocal {
+        url = '../mvn'
+    }
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+// Use the jars in game/ as Minecraft instead of the vanilla downloads.
+// Loom can only download the game jars from a version JSON, so we register a custom version
+// (vanilla JSON with our jars' sha1s) and pre-seed Loom's cache with them; the sha1s match so nothing is downloaded.
+// The version id includes the jar hashes, so replacing a jar re-runs Loom's remapping automatically.
+def customMinecraftVersion = "${project.minecraft_version}"
+def vanillaManifestUrl = 'https://piston-meta.mojang.com/v1/packages/b71bae449192fbbe1582ff32fb3765edf0b9b0a8/1.6.4.json'
+
+loom {
+    customMinecraftManifest.set(vanillaManifestUrl)
+    setIntermediaryUrl('https://maven.legacyfabric.net/net/legacyfabric/intermediary/%1$s/intermediary-%1$s-v2.jar')
+}
+
+// some bullshit to allow using loom (for dependencies) to get the ./.fabric/remappedJars/* intermediaries
+def seedCustomMinecraft = {
+    def customClientJar = file('game/btw-client-release.jar')
+    def customServerJar = file('game/btw-server-release.jar')
+
+    if (!customClientJar.exists() || !customServerJar.exists()) {
+        println("************************************************")
+        println("ERROR: CANNOT FIND runner/game/btw-client-release.jar AND/OR runner/game/btw-server-release.jar. THE RUNNER WILL NOT WORK UNTIL THOSE FILES EXIST")
+        println("************************************************")
+        return
+    }
+
+    def sha1Of = { byte[] bytes -> MessageDigest.getInstance('SHA-1').digest(bytes).encodeHex().toString() }
+    def customClientSha1 = sha1Of(customClientJar.bytes)
+    def customServerSha1 = sha1Of(customServerJar.bytes)
+    def customGameHash = sha1Of((customClientSha1 + customServerSha1).bytes)
+    customMinecraftVersion = "${project.minecraft_version}-custom-${customGameHash.take(8)}"
+
+    def cacheDir = new File(loom.files.userCache, customMinecraftVersion)
+    cacheDir.mkdirs()
+
+    def seedJar = { File source, String name ->
+        def target = new File(cacheDir, name)
+        if (!target.exists() || target.length() != source.length()) {
+            Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    def vanillaInfo = new File(loom.files.userCache, 'vanilla-' + project.minecraft_version + '.json')
+    if (!vanillaInfo.exists()) {
+        vanillaInfo.text = new URL(vanillaManifestUrl).text
+    }
+
+    def info = new JsonSlurper().parse(vanillaInfo)
+    info.id = customMinecraftVersion
+
+    seedJar(customClientJar, 'minecraft-client.jar')
+    info.downloads.client.sha1 = customClientSha1
+    info.downloads.client.size = customClientJar.length()
+
+    seedJar(customServerJar, 'minecraft-server.jar')
+    info.downloads.server.sha1 = customServerSha1
+    info.downloads.server.size = customServerJar.length()
+
+    info.downloads.remove('windows_server')
+
+    def infoFile = new File(cacheDir, 'minecraft-info.json')
+    infoFile.text = JsonOutput.toJson(info)
+    // Loom re-downloads custom manifests older than a day, keep it fresh
+    infoFile.setLastModified(System.currentTimeMillis())
+}
+seedCustomMinecraft()
+
+dependencies {
+    minecraft("com.mojang:minecraft:${customMinecraftVersion}") {
+        exclude group: 'com.google'
+    }
+    println("Using minecraft version ${customMinecraftVersion}")
+    mappings "btw.community:mappings:1.0.3"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+    //these aren't transient deps from floader for whatever reason
+    implementation "org.ow2.asm:asm:9.9"
+    implementation "org.ow2.asm:asm-util:9.9"
+    implementation "org.ow2.asm:asm-analysis:9.9"
+    implementation "org.ow2.asm:asm-commons:9.9"
+    implementation "org.ow2.asm:asm-tree:9.9"
+    implementation "net.fabricmc:sponge-mixin:0.16.5+mixin.0.8.7"
+    implementation "net.sf.jopt-simple:jopt-simple:4.5"
+}
+
+tasks.register('runnerClient', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = "btw.community.runner.Runner"
+}
+
+tasks.register('runnerServer', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = "btw.community.runner.Runner"
+}
+
+// Requires btw-client-release.jar and btw-server-release.jar in the runner/game dir
+// User can then extract the built intermediaries from runner/.fabric/remappedJars/**/*.jar
+tasks.register('doRunner') {
+    dependsOn([runnerServer, runnerClient])
+}

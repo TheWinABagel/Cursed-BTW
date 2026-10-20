@@ -16,6 +16,9 @@ pluginManagement {
 }
 rootProject.name = name
 
+// Independent subproject, also buildable on its own from ./runner
+include 'runner'
+
 gradle.rootProject {
     group = group
     version = version
